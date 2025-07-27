@@ -21,10 +21,12 @@ jobs:
       - name: Fetch and merge DSIP + SBIR data
         run: python fetch_and_merge.py
 
-      - name: Commit updated CSV
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add dsip_sbir_enriched.csv archive/*.csv || echo "Nothing to add"
-          git commit -m "Auto-update CSV: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "Nothing to commit"
-          git push || echo "Nothing to push"
+    - name: Commit updated CSV
+      run: |
+        git config user.name "github-actions"
+        git config user.email "github-actions@github.com"
+        git add dsip_sbir_enriched.csv
+        git add archive/*.csv
+        git commit -m "🤖 Auto-update SBIR tracker CSV"
+        git push
+      continue-on-error: true
