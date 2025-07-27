@@ -1,0 +1,33 @@
+name: Update Active SBIR Topics CSV
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 12 * * *'  # runs daily at 12:00 UTC
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run scraper
+        run: python scrape_topics.py
+
+      - name: Commit and push CSVs
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add active_sbir_topics.csv archive/
+          git commit -m "🔄 Auto-update active SBIR topics CSV"
+          git push
