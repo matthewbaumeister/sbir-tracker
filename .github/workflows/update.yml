@@ -9,6 +9,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
@@ -27,9 +28,10 @@ jobs:
         run: python fetch_and_merge.py
 
       - name: Commit and push CSV
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --global user.name 'github-actions'
-          git config --global user.email 'github-actions@github.com'
-          git add dsip_sbir_enriched.csv
-          git commit -m "Update CSV [auto]"
-          git push
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add dsip_sbir_enriched.csv || echo "No changes to add"
+          git diff --cached --quiet || (git commit -m "Auto-update CSV" && git push)
