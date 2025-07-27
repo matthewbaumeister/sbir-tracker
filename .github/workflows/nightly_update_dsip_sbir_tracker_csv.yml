@@ -2,31 +2,30 @@ name: Nightly Update DSIP + SBIR Tracker CSV
 
 on:
   schedule:
-    - cron: '0 4 * * *'
-  workflow_dispatch:
+    - cron: '0 5 * * *'  # Runs every day at 5 AM UTC
 
 jobs:
-  fetch-and-save:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install requests
 
-    - name: Run fetch and merge script
-      run: python fetch_and_merge.py
+      - name: Fetch and merge DSIP + SBIR data
+        run: python fetch_and_merge.py
 
-    - name: Commit updated CSV
-      run: |
-        git config user.name "github-actions"
-        git config user.email "actions@github.com"
-        git add dsip_sbir_enriched.csv || echo "No CSV to add"
-        git commit -m "Auto-update CSV: 2025-07-27T15:57:39.067083Z" || echo "Nothing to commit"
-        git push
+      - name: Commit updated CSV
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add dsip_sbir_enriched.csv archive/*.csv || echo "Nothing to add"
+          git commit -m "Auto-update CSV: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "Nothing to commit"
+          git push || echo "Nothing to push"
