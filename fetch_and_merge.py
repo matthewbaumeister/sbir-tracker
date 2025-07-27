@@ -62,3 +62,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+    import os
+print("📂 Current working directory:", os.getcwd())
+print("📄 Files after saving CSV:", os.listdir('.'))
+print("📁 Archive contents:", os.listdir('archive'))
