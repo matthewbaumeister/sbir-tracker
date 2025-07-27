@@ -4,27 +4,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  fetch-and-save:
+  debug:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
 
-    - name: Install dependencies
-      run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install requests
 
-    - name: Run fetch and merge script
-      run: python fetch_and_merge.py
-
-    - name: Commit updated CSV
-      run: |
-        git config user.name "github-actions"
-        git config user.email "actions@github.com"
-        git add dsip_sbir_enriched.csv || echo "No CSV to add"
-        git commit -m "Auto-update CSV: 2025-07-27T15:57:39.067045Z" || echo "Nothing to commit"
-        git push
+      - name: Run fetch and merge script
+        run: python fetch_and_merge.py
