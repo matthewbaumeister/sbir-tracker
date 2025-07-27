@@ -1,13 +1,17 @@
 name: Update DSIP + SBIR Tracker CSV
 
-on:
+on: 
   workflow_dispatch:
-  schedule:
-    - cron: '0 12 * * *'  # Runs daily at 12:00 UTC
+
+permissions:
+  contents: write  # ✅ This allows push to the repo
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
     steps:
       - name: Checkout repository
