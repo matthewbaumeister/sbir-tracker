@@ -1,88 +1,62 @@
-# fetch_and_merge.py
-
+from datetime import datetime
 import requests
-import json
 import csv
 import os
-from datetime import datetime
 
-DSIP_URL = "https://www.dodsbirsttr.mil/submissions/opportunities/api/topics"
-SBIR_AWARDS_URL = "https://api.sbir.gov/v2/solicitations/topics"
-OUTPUT_FILE = "dsip_sbir_enriched.csv"
+# Constants
+DSIP_URL = "https://www.dodsbir.net/sitis/api/topics/solicitations/current"
+CSV_FILENAME = "dsip_sbir_enriched.csv"
+TIMESTAMP = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+VERSIONED_CSV_FILENAME = f"archive/dsip_sbir_enriched_{TIMESTAMP}.csv"
 
-HEADERS = {
-    "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0"
-}
+# Ensure archive directory exists
+os.makedirs("archive", exist_ok=True)
 
-def fetch_dsip_topics():
-    print("Fetching topics from DSIP...")
+def fetch_dsip_data():
     try:
-        response = requests.get(DSIP_URL, headers=HEADERS)
+        response = requests.get(DSIP_URL)
         response.raise_for_status()
         data = response.json()
-        topics = data.get("topics", [])
-        print(f"Fetched {len(topics)} DSIP topics")
-        return topics
+        print(f"Fetched {len(data)} topics from DSIP.")
+        return data
     except Exception as e:
-        print(f"DSIP fetch error: {e}")
+        print(f"Error fetching DSIP data: {e}")
         return []
 
-def fetch_sbir_awards():
-    print("Fetching awards from SBIR.gov...")
-    try:
-        response = requests.get(SBIR_AWARDS_URL, headers=HEADERS)
-        response.raise_for_status()
-        awards = response.json()
-        print(f"Fetched {len(awards)} SBIR.gov records")
-        return awards
-    except Exception as e:
-        print(f"SBIR.gov fetch error: {e}")
-        return []
-
-def enrich_topics_with_awards(topics, awards):
+def enrich_with_sbir_status(data):
     enriched = []
-    print("Enriching topics...")
-    for topic in topics:
-        topic_number = topic.get("topic_number", "").lower()
-        match = next((award for award in awards if award.get("topic", "").lower() == topic_number), None)
+    for topic in data:
         enriched.append({
-            "topic_number": topic.get("topic_number", ""),
-            "title": topic.get("title", ""),
-            "component": topic.get("component", ""),
-            "phase": topic.get("phase", ""),
-            "release_date": topic.get("release_date", ""),
-            "proposal_due_date": topic.get("proposal_due_date", ""),
-            "award_status": "Awarded" if match else "Unknown",
-            "award_title": match["title"] if match else "",
-            "agency": match["agency"] if match else "",
+            "Topic ID": topic.get("topicId", "N/A"),
+            "Title": topic.get("title", "N/A"),
+            "Description": topic.get("description", "N/A"),
+            "Agency": topic.get("agency", "N/A"),
+            "Phase": topic.get("phase", "N/A"),
+            "Close Date": topic.get("closeDate", "N/A"),
+            "Award Status": "Unknown",
         })
-    print(f"Enriched {len(enriched)} topics")
     return enriched
 
-def save_to_csv(data):
-    now = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
-    print(f"Saving CSV at {now}")
-    header = [
-        "topic_number", "title", "component", "phase", "release_date",
-        "proposal_due_date", "award_status", "award_title", "agency"
-    ]
-    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=header)
+def save_csv(data, filename):
+    if not data:
+        print("No data to save.")
+        return False
+    keys = data[0].keys()
+    with open(filename, "w", newline='', encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
-        for row in data:
-            writer.writerow(row)
-    print(f"CSV saved as {OUTPUT_FILE}")
+        writer.writerows(data)
+    print(f"Saved {len(data)} rows to {filename}")
+    return True
 
 def main():
-    dsip_topics = fetch_dsip_topics()
-    if not dsip_topics:
-        print("No DSIP topics found. Exiting.")
+    data = fetch_dsip_data()
+    if len(data) < 10:
+        print("Fewer than 10 topics fetched. Aborting save to prevent overwrite.")
         return
-
-    sbir_awards = fetch_sbir_awards()
-    enriched = enrich_topics_with_awards(dsip_topics, sbir_awards)
-    save_to_csv(enriched)
+    enriched = enrich_with_sbir_status(data)
+    save_csv(enriched, CSV_FILENAME)
+    save_csv(enriched, VERSIONED_CSV_FILENAME)
 
 if __name__ == "__main__":
     main()
