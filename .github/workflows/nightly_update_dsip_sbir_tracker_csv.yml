@@ -1,0 +1,32 @@
+name: Nightly Update DSIP + SBIR Tracker CSV
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-and-save:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Run fetch and merge script
+      run: python fetch_and_merge.py
+
+    - name: Commit updated CSV
+      run: |
+        git config user.name "github-actions"
+        git config user.email "actions@github.com"
+        git add dsip_sbir_enriched.csv || echo "No CSV to add"
+        git commit -m "Auto-update CSV: 2025-07-27T15:57:39.067083Z" || echo "Nothing to commit"
+        git push
