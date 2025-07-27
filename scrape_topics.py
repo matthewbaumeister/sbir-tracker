@@ -1,49 +1,51 @@
 import requests
-import re
-import json
+from bs4 import BeautifulSoup
 import csv
 from datetime import datetime
 
 URL = "https://www.dodsbirsttr.mil/topics-app/"
-CSV_FILE = "active_sbir_topics.csv"
+OUTPUT_CSV = "active_sbir_topics.csv"
 TIMESTAMP = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
-ARCHIVE_CSV = f"archive/active_sbir_topics_{TIMESTAMP}.csv"
 
-def extract_json_from_html(html):
-    # Look for window.__INITIAL_STATE__ = {...};
-    match = re.search(r'window\.__INITIAL_STATE__\s*=\s*(\{.*?\});', html, re.DOTALL)
-    if not match:
-        raise ValueError("Could not find embedded JSON in HTML")
-    return json.loads(match.group(1))
-
-def extract_topics(state):
-    return state["topics"]["topicList"]
-
-def save_to_csv(topics, filename):
-    if not topics:
-        print("⚠️ No topics to save.")
-        return
-
-    keys = topics[0].keys()
-    with open(filename, "w", newline='', encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=keys)
-        writer.writeheader()
-        writer.writerows(topics)
-    print(f"✅ Saved {len(topics)} topics to {filename}")
-
-def main():
-    response = requests.get(URL)
-    if response.status_code != 200:
-        print(f"❌ Failed to fetch HTML: {response.status_code}")
-        return
+def scrape_topics():
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/115.0.0.0 Safari/537.36"
+        )
+    }
 
     try:
-        state = extract_json_from_html(response.text)
-        topics = extract_topics(state)
-        save_to_csv(topics, CSV_FILE)
-        save_to_csv(topics, ARCHIVE_CSV)
-    except Exception as e:
-        print(f"❌ Scraping failed: {e}")
+        response = requests.get(URL, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Failed to fetch HTML: {e}")
+        return
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    table = soup.find("table")
+
+    if not table:
+        print("❌ Scraping failed: No table found on the page.")
+        return
+
+    headers = [th.text.strip() for th in table.find("thead").find_all("th")]
+    rows = []
+    for tr in table.find("tbody").find_all("tr"):
+        cols = [td.text.strip() for td in tr.find_all("td")]
+        rows.append(cols)
+
+    if not rows:
+        print("⚠️ No topics found.")
+        return
+
+    with open(OUTPUT_CSV, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+    print(f"✅ Scraping complete. {len(rows)} topics saved to {OUTPUT_CSV}.")
 
 if __name__ == "__main__":
-    main()
+    scrape_topics()
