@@ -1,36 +1,32 @@
-name: Update DSIP + SBIR Tracker CSV
+name: Fetch and Enrich SBIR Data
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  fetch-and-save:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
 
       - name: Run fetch and merge script
         run: python fetch_and_merge.py
 
-      - name: Debug - Show current directory
-        run: pwd
-
-      - name: Debug - List all files
-        run: ls -la
-
-      - name: Commit CSV output
+      - name: Commit updated CSV
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name github-actions
+          git config user.email github-actions@github.com
           git add dsip_sbir_enriched.csv
-          git commit -m "Auto-update CSV: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo "No changes to commit"
+          git commit -m "Update SBIR enriched CSV"
           git push
