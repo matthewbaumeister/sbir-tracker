@@ -1,293 +1,264 @@
-import time
+import asyncio
 import pandas as pd
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.keys import Keys
+from playwright.async_api import async_playwright
 from datetime import datetime
 import logging
+import json
+import re
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def scrape_sbir_topics():
+async def scrape_sbir_topics():
     """
-    Scrape SBIR/STTR topics using Selenium
+    Scrape active SBIR/STTR topics from the DoD SBIR/STTR Topics App
+    Handles lazy loading by scrolling to load all 31 topics
     """
     url = "https://www.dodsbirsttr.mil/topics-app/"
     
-    # Configure Chrome options
-    chrome_options = Options()
-    chrome_options.add_argument('--headless')  # Comment out for debugging
-    chrome_options.add_argument('--no-sandbox')
-    chrome_options.add_argument('--disable-dev-shm-usage')
-    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-    chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-    
-    driver = webdriver.Chrome(options=chrome_options)
-    
-    try:
-        logger.info(f"Opening {url}")
-        driver.get(url)
-        driver.maximize_window()
+    async with async_playwright() as p:
+        logger.info("Launching browser...")
+        browser = await p.chromium.launch(
+            headless=True,  # Set to False for debugging
+            args=['--disable-blink-features=AutomationControlled']
+        )
         
-        # Wait for page to load
-        logger.info("Waiting for page to load...")
-        time.sleep(10)  # Initial wait for React app to load
+        context = await browser.new_context(
+            viewport={'width': 1920, 'height': 1080},
+            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        )
         
-        # Take screenshot for debugging
-        driver.save_screenshot('debug_screenshot.png')
-        
-        # Try to find and click on "Active Topics" or similar filter
-        logger.info("Looking for active topics filter...")
-        
-        filter_clicked = False
-        filter_selectors = [
-            "//button[contains(text(), 'Active')]",
-            "//span[contains(text(), 'Active')]",
-            "//label[contains(text(), 'Active')]",
-            "//input[@type='checkbox' and @value='active']",
-            "//div[contains(@class, 'filter')]//span[contains(text(), 'Active')]"
-        ]
-        
-        for selector in filter_selectors:
-            try:
-                element = driver.find_element(By.XPATH, selector)
-                if element:
-                    driver.execute_script("arguments[0].scrollIntoView(true);", element)
-                    time.sleep(1)
-                    element.click()
-                    filter_clicked = True
-                    logger.info(f"Clicked filter: {selector}")
-                    time.sleep(3)
-                    break
-            except:
-                continue
-        
-        # Method 1: Try to select all data if there's a transpose/select all option
-        logger.info("Looking for data selection options...")
+        page = await context.new_page()
         
         try:
-            # Look for transpose or select all buttons
-            select_all_selectors = [
-                "//button[contains(text(), 'Select All')]",
-                "//button[contains(text(), 'Transpose')]",
-                "//button[contains(@class, 'select-all')]",
-                "//input[@type='checkbox' and contains(@class, 'select-all')]"
-            ]
+            logger.info(f"Navigating to {url}")
+            await page.goto(url, wait_until='networkidle', timeout=60000)
             
-            for selector in select_all_selectors:
-                try:
-                    element = driver.find_element(By.XPATH, selector)
-                    element.click()
-                    logger.info(f"Clicked: {selector}")
-                    time.sleep(2)
-                except:
-                    continue
-        except:
-            pass
-        
-        # Method 2: Scroll to load all data
-        logger.info("Starting scroll process...")
-        
-        # Find scrollable container
-        scroll_script = """
-        function findScrollContainer() {
-            const elements = document.querySelectorAll('*');
-            for (let el of elements) {
-                const style = window.getComputedStyle(el);
-                if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && 
-                    el.scrollHeight > el.clientHeight) {
-                    return el;
-                }
-            }
-            return document.documentElement;
-        }
-        return findScrollContainer();
-        """
-        
-        scroll_container = driver.execute_script(scroll_script)
-        
-        # Perform scrolling
-        last_height = driver.execute_script("return arguments[0].scrollHeight", scroll_container)
-        scroll_count = 0
-        max_scrolls = 50
-        
-        while scroll_count < max_scrolls:
-            # Scroll down
-            if scroll_container == driver.find_element(By.TAG_NAME, "html"):
-                driver.execute_script("window.scrollTo(0, document.documentElement.scrollHeight);")
+            # Wait for the table to load
+            logger.info("Waiting for topics table to load...")
+            await page.wait_for_timeout(5000)
+            
+            # Look for the topic count in the header
+            topic_count_text = await page.text_content('text=/Number of Topics:/')
+            if topic_count_text:
+                total_topics = int(re.search(r'Number of Topics:\s*(\d+)', topic_count_text).group(1))
+                logger.info(f"Total topics to load: {total_topics}")
             else:
-                driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_container)
+                total_topics = 50  # Default max if we can't find the count
             
-            # Wait for new content
-            time.sleep(2)
+            # Scroll to load all topics
+            logger.info("Scrolling to load all topics...")
+            previous_count = 0
+            scroll_attempts = 0
+            max_scroll_attempts = 20
             
-            # Check if new content loaded
-            new_height = driver.execute_script("return arguments[0].scrollHeight", scroll_container)
-            
-            if new_height == last_height:
-                logger.info("No new content loaded")
-                break
+            while scroll_attempts < max_scroll_attempts:
+                # Count current visible topics
+                # Look for topic rows - they have the pattern A254-XXX
+                topic_elements = await page.query_selector_all('text=/A254-\\d{3}/')
+                current_count = len(topic_elements)
                 
-            last_height = new_height
-            scroll_count += 1
-            logger.info(f"Scroll {scroll_count}: Height = {new_height}")
-        
-        # Extract data
-        logger.info("Extracting data...")
-        
-        # Method 1: Try to find table data
-        topics_data = []
-        
-        # Common selectors for data rows
-        row_selectors = [
-            "//tr[position()>1]",  # Table rows excluding header
-            "//div[@role='row']",  # ARIA grid rows
-            "//div[contains(@class, 'topic')]",
-            "//div[contains(@class, 'row') and contains(@class, 'data')]",
-            "//article",
-            "//div[contains(@class, 'MuiDataGrid-row')]",
-            "//div[contains(@class, 'ag-row')]"
-        ]
-        
-        for selector in row_selectors:
-            try:
-                rows = driver.find_elements(By.XPATH, selector)
-                if rows:
-                    logger.info(f"Found {len(rows)} rows with selector: {selector}")
-                    
-                    for row in rows:
-                        try:
-                            text = row.text.strip()
-                            if text and len(text) > 10:
-                                topics_data.append(text)
-                        except:
-                            continue
-                    
-                    if topics_data:
-                        break
-            except:
-                continue
-        
-        # If no structured data found, get all text content
-        if not topics_data:
-            logger.info("No structured data found, extracting all text...")
+                logger.info(f"Currently loaded: {current_count} topics")
+                
+                # If we've loaded all topics or no new topics loaded, stop
+                if current_count >= total_topics or current_count == previous_count:
+                    logger.info(f"All topics loaded: {current_count}")
+                    break
+                
+                previous_count = current_count
+                
+                # Scroll to bottom of the page
+                await page.evaluate('window.scrollTo(0, document.body.scrollHeight)')
+                
+                # Wait for new content to load
+                await page.wait_for_timeout(2000)
+                
+                scroll_attempts += 1
             
-            # Get all text from the page body
-            body_text = driver.find_element(By.TAG_NAME, "body").text
-            lines = [line.strip() for line in body_text.split('\n') if line.strip()]
+            # Extract the table data
+            logger.info("Extracting topic data...")
             
-            # Filter out navigation/header elements
-            topics_data = []
-            for line in lines:
-                # Look for patterns that indicate topic data
-                if any(pattern in line for pattern in ['AF', 'N', 'A', 'DHA', 'CBD', 'MDA', 'SOCOM', 'DARPA']) and '-' in line:
-                    topics_data.append(line)
-                elif len(line) > 20 and not any(skip in line.lower() for skip in ['menu', 'login', 'search', 'filter']):
-                    topics_data.append(line)
-        
-        # Process the extracted data
-        if topics_data:
-            logger.info(f"Processing {len(topics_data)} items...")
-            
-            # Parse into structured format
-            parsed_topics = []
-            current_topic = {}
-            
-            for item in topics_data:
-                # Check if this is a topic number
-                if any(agency in item for agency in ['AF', 'N', 'A', 'DHA', 'CBD', 'MDA']) and '-' in item and any(c.isdigit() for c in item):
-                    if current_topic:
-                        parsed_topics.append(current_topic)
+            # Get all rows from the table
+            topics_data = await page.evaluate('''
+                () => {
+                    const topics = [];
                     
-                    # Extract topic number
-                    topic_parts = item.split()
-                    topic_num = None
-                    for part in topic_parts:
-                        if '-' in part and any(c.isdigit() for c in part):
-                            topic_num = part
-                            break
+                    // Find all rows in the table
+                    // First, try to find the table container
+                    const rows = document.querySelectorAll('tr, [role="row"], div[class*="row"]');
                     
-                    current_topic = {
-                        'Topic Number': topic_num or item.split()[0],
-                        'Full Text': item
+                    rows.forEach(row => {
+                        const text = row.innerText || row.textContent || '';
+                        
+                        // Check if this row contains a topic number (A254-XXX pattern)
+                        if (text.includes('A254-') && text.length > 20) {
+                            // Split the row text by tabs or multiple spaces
+                            const parts = text.split(/\\t+|\\s{2,}/);
+                            
+                            // Clean up the parts
+                            const cleanParts = parts.map(p => p.trim()).filter(p => p.length > 0);
+                            
+                            if (cleanParts.length >= 4) {
+                                const topic = {
+                                    'Topic_Number': cleanParts[0],
+                                    'Title': cleanParts[1],
+                                    'Open_Date': cleanParts[2],
+                                    'Close_Date': cleanParts[3]
+                                };
+                                
+                                // Add status if present
+                                if (cleanParts.length > 4) {
+                                    topic['Status'] = cleanParts[4];
+                                }
+                                
+                                topics.push(topic);
+                            }
+                        }
+                    });
+                    
+                    // If no structured data found, try getting all topic numbers and their rows
+                    if (topics.length === 0) {
+                        // Find all elements containing A254-XXX
+                        const topicElements = Array.from(document.querySelectorAll('*')).filter(el => {
+                            const text = el.textContent || '';
+                            return /A254-\\d{3}/.test(text) && el.children.length === 0;
+                        });
+                        
+                        topicElements.forEach(el => {
+                            let row = el;
+                            // Find the parent row element
+                            while (row && !row.matches('tr, [role="row"], div[class*="row"]')) {
+                                row = row.parentElement;
+                            }
+                            
+                            if (row) {
+                                const rowText = row.innerText || row.textContent || '';
+                                const parts = rowText.split(/\\t+|\\s{2,}/).map(p => p.trim()).filter(p => p);
+                                
+                                if (parts.length >= 2) {
+                                    topics.push({
+                                        'Topic_Number': parts[0],
+                                        'Title': parts[1],
+                                        'Open_Date': parts[2] || '',
+                                        'Close_Date': parts[3] || '',
+                                        'Status': parts[4] || 'Open'
+                                    });
+                                }
+                            }
+                        });
                     }
                     
-                    # Try to extract title (usually after topic number)
-                    remaining_text = item.replace(topic_num or '', '').strip() if topic_num else item
-                    if remaining_text:
-                        current_topic['Title'] = remaining_text
-                        
-                elif current_topic:
-                    # Add to current topic
-                    current_topic['Full Text'] += '\n' + item
-                    
-                    # Try to extract structured fields
-                    if ':' in item:
-                        key, value = item.split(':', 1)
-                        key = key.strip()
-                        value = value.strip()
-                        if key and value and len(key) < 50:
-                            current_topic[key] = value
+                    return topics;
+                }
+            ''')
             
-            if current_topic:
-                parsed_topics.append(current_topic)
+            if not topics_data or len(topics_data) == 0:
+                # Fallback: Get all text content and parse it
+                logger.info("Trying fallback extraction method...")
+                
+                all_text = await page.evaluate('() => document.body.innerText')
+                lines = all_text.split('\n')
+                
+                topics_data = []
+                i = 0
+                while i < len(lines):
+                    line = lines[i].strip()
+                    # Look for topic number pattern
+                    if re.match(r'A254-\d{3}', line):
+                        topic = {'Topic_Number': line}
+                        
+                        # Next line should be title
+                        if i + 1 < len(lines):
+                            topic['Title'] = lines[i + 1].strip()
+                        
+                        # Look for dates in next few lines
+                        for j in range(i + 2, min(i + 5, len(lines))):
+                            if '/' in lines[j]:  # Likely a date
+                                if 'Open_Date' not in topic:
+                                    topic['Open_Date'] = lines[j].strip()
+                                elif 'Close_Date' not in topic:
+                                    topic['Close_Date'] = lines[j].strip()
+                        
+                        # Look for Open/Closed status
+                        for j in range(i, min(i + 6, len(lines))):
+                            if lines[j].strip() in ['Open', 'Closed']:
+                                topic['Status'] = lines[j].strip()
+                                break
+                        
+                        if 'Status' not in topic:
+                            topic['Status'] = 'Open'  # Default
+                        
+                        topics_data.append(topic)
+                        i += 5  # Skip past this topic
+                    else:
+                        i += 1
             
             # Create DataFrame
-            if parsed_topics:
-                df = pd.DataFrame(parsed_topics)
+            if topics_data:
+                df = pd.DataFrame(topics_data)
+                
+                # Add metadata
+                df['scrape_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                df['source_url'] = url
+                
+                # Ensure we have all expected columns
+                expected_columns = ['Topic_Number', 'Title', 'Open_Date', 'Close_Date', 'Status']
+                for col in expected_columns:
+                    if col not in df.columns:
+                        df[col] = ''
+                
+                # Reorder columns
+                column_order = ['Topic_Number', 'Title', 'Open_Date', 'Close_Date', 'Status', 'scrape_timestamp', 'source_url']
+                df = df[column_order]
+                
+                # Save to CSV
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                filename = f'active_sbir_topics_{timestamp}.csv'
+                df.to_csv(filename, index=False)
+                df.to_csv('active_sbir_topics.csv', index=False)
+                
+                logger.info(f"Successfully saved {len(df)} topics")
+                logger.info(f"Columns: {', '.join(df.columns.tolist())}")
+                
+                # Print summary
+                print(f"\n{'='*60}")
+                print(f"SCRAPING COMPLETED SUCCESSFULLY")
+                print(f"{'='*60}")
+                print(f"Total topics scraped: {len(df)}")
+                print(f"File saved as: {filename}")
+                print(f"\nFirst 5 topics:")
+                print(df[['Topic_Number', 'Title', 'Status']].head().to_string())
+                print(f"{'='*60}\n")
+                
+                return df
             else:
-                # Fallback: just save raw data
-                df = pd.DataFrame(topics_data, columns=['Raw Content'])
+                raise Exception("No topics could be extracted from the page")
+                
+        except Exception as e:
+            logger.error(f"Error during scraping: {str(e)}")
             
-            # Add metadata
-            df['scrape_timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            df['source_url'] = url
+            # Save screenshot for debugging
+            await page.screenshot(path='error_screenshot.png')
+            logger.info("Saved error screenshot to error_screenshot.png")
             
-            # Save to CSV
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f'active_sbir_topics_{timestamp}.csv'
-            df.to_csv(filename, index=False)
-            df.to_csv('active_sbir_topics.csv', index=False)
+            # Save page content
+            content = await page.content()
+            with open('error_page_content.html', 'w', encoding='utf-8') as f:
+                f.write(content)
+            logger.info("Saved page content to error_page_content.html")
             
-            logger.info(f"Successfully saved {len(df)} topics to {filename}")
+            raise
             
-            # Print summary
-            print(f"\nScraping completed successfully!")
-            print(f"Total topics found: {len(df)}")
-            print(f"Columns: {', '.join(df.columns.tolist())}")
-            print(f"\nFirst 5 entries:")
-            print(df.head())
-            
-            return df
-            
-        else:
-            raise Exception("No data could be extracted from the page")
-            
-    except Exception as e:
-        logger.error(f"Error during scraping: {str(e)}")
-        
-        # Save page source for debugging
-        with open('debug_page_source.html', 'w', encoding='utf-8') as f:
-            f.write(driver.page_source)
-        logger.info("Saved page source to debug_page_source.html")
-        
-        raise
-        
-    finally:
-        driver.quit()
+        finally:
+            await browser.close()
 
 def main():
     """
-    Main function
+    Main function to run the scraper
     """
     try:
-        df = scrape_sbir_topics()
+        df = asyncio.run(scrape_sbir_topics())
         return df
     except Exception as e:
         logger.error(f"Scraper failed: {str(e)}")
