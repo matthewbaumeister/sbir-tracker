@@ -2,13 +2,14 @@
 import requests
 import pandas as pd
 from datetime import datetime
+import os
 
 def get_dsip_topics():
     try:
         url = "https://www.dodsbirsttr.mil/api/v1/topics?solicitationTopicType=ALL"
         headers = {
             "accept": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            "User-Agent": "Mozilla/5.0"
         }
         response = requests.get(url, headers=headers, timeout=20)
         response.raise_for_status()
@@ -81,8 +82,18 @@ def main():
 
     print("Enriching data...")
     enriched_df = enrich_topics(topics_df, award_data)
-    enriched_df.to_csv("dsip_sbir_enriched.csv", index=False)
-    print("✅ Enriched CSV saved: dsip_sbir_enriched.csv")
+
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = "data"
+    os.makedirs(output_dir, exist_ok=True)
+
+    archive_path = os.path.join(output_dir, f"dsip_sbir_enriched_{timestamp}.csv")
+    latest_path = "dsip_sbir_enriched_latest.csv"
+
+    enriched_df.to_csv(archive_path, index=False)
+    enriched_df.to_csv(latest_path, index=False)
+    print(f"✅ Saved: {archive_path}")
+    print(f"✅ Updated: {latest_path}")
 
 if __name__ == "__main__":
     main()
