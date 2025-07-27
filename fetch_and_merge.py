@@ -54,4 +54,35 @@ def enrich_topics_with_awards(topics, awards):
             "release_date": topic.get("release_date", ""),
             "proposal_due_date": topic.get("proposal_due_date", ""),
             "award_status": "Awarded" if match else "Unknown",
-            "award_title
+            "award_title": match["title"] if match else "",
+            "agency": match["agency"] if match else "",
+        })
+    print(f"Enriched {len(enriched)} topics")
+    return enriched
+
+def save_to_csv(data):
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+    print(f"Saving CSV at {now}")
+    header = [
+        "topic_number", "title", "component", "phase", "release_date",
+        "proposal_due_date", "award_status", "award_title", "agency"
+    ]
+    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=header)
+        writer.writeheader()
+        for row in data:
+            writer.writerow(row)
+    print(f"CSV saved as {OUTPUT_FILE}")
+
+def main():
+    dsip_topics = fetch_dsip_topics()
+    if not dsip_topics:
+        print("No DSIP topics found. Exiting.")
+        return
+
+    sbir_awards = fetch_sbir_awards()
+    enriched = enrich_topics_with_awards(dsip_topics, sbir_awards)
+    save_to_csv(enriched)
+
+if __name__ == "__main__":
+    main()
