@@ -1,0 +1,33 @@
+name: Scheduled SBIR Scrape
+
+on:
+  schedule:
+    - cron: '0 */12 * * *'  # Every 12 hours
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        run: python scrape_topics.py
+
+      - name: Commit and push CSVs
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add active_sbir_topics.csv archive/
+          git commit -m "🕒 Scheduled update of SBIR topics"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
