@@ -60,10 +60,10 @@ def main():
     else:
         print("❌ CSV write failed.")
 
+    # ✅ Log current file structure
+    print("📂 Current working directory:", os.getcwd())
+    print("📄 Files in root:", os.listdir('.'))
+    print("📁 Archive contents:", os.listdir('archive'))
+
 if __name__ == "__main__":
     main()
-    
-    import os
-print("📂 Current working directory:", os.getcwd())
-print("📄 Files after saving CSV:", os.listdir('.'))
-print("📁 Archive contents:", os.listdir('archive'))
