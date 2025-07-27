@@ -1,55 +1,47 @@
 import requests
+import re
+import json
 import csv
-from datetime import datetime, timezone
-import os
+from datetime import datetime
 
-API_URL = "https://www.dodsbirsttr.mil/api/topic/topic/search"
-TIMESTAMP = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
-FILENAME = "active_sbir_topics.csv"
-ARCHIVE_DIR = "archive"
-ARCHIVE_FILENAME = f"{ARCHIVE_DIR}/active_sbir_topics_{TIMESTAMP}.csv"
+URL = "https://www.dodsbirsttr.mil/topics-app/"
+CSV_FILE = "active_sbir_topics.csv"
+TIMESTAMP = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
+ARCHIVE_CSV = f"archive/active_sbir_topics_{TIMESTAMP}.csv"
 
-# Ensure archive directory exists
-os.makedirs(ARCHIVE_DIR, exist_ok=True)
+def extract_json_from_html(html):
+    # Look for window.__INITIAL_STATE__ = {...};
+    match = re.search(r'window\.__INITIAL_STATE__\s*=\s*(\{.*?\});', html, re.DOTALL)
+    if not match:
+        raise ValueError("Could not find embedded JSON in HTML")
+    return json.loads(match.group(1))
 
-def fetch_active_topics():
-    payload = {
-        "includeClosed": False,
-        "searchText": "",
-        "sortOrder": "ASC"
-    }
-    headers = {
-        "Content-Type": "application/json"
-    }
-    response = requests.post(API_URL, json=payload, headers=headers)
-    response.raise_for_status()
-    return response.json()["results"]
+def extract_topics(state):
+    return state["topics"]["topicList"]
 
-def save_to_csv(data, path):
-    if not data:
-        print("⚠️ No data to save.")
-        return False
+def save_to_csv(topics, filename):
+    if not topics:
+        print("⚠️ No topics to save.")
+        return
 
-    keys = [
-        "branch", "component", "topicId", "title",
-        "topicType", "solicitation", "openDate", "closeDate"
-    ]
-
-    with open(path, "w", newline="", encoding="utf-8") as f:
+    keys = topics[0].keys()
+    with open(filename, "w", newline='', encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=keys)
         writer.writeheader()
-        for item in data:
-            row = {k: item.get(k, "") for k in keys}
-            writer.writerow(row)
-
-    print(f"✅ Saved {len(data)} topics to {path}")
-    return True
+        writer.writerows(topics)
+    print(f"✅ Saved {len(topics)} topics to {filename}")
 
 def main():
+    response = requests.get(URL)
+    if response.status_code != 200:
+        print(f"❌ Failed to fetch HTML: {response.status_code}")
+        return
+
     try:
-        topics = fetch_active_topics()
-        save_to_csv(topics, FILENAME)
-        save_to_csv(topics, ARCHIVE_FILENAME)
+        state = extract_json_from_html(response.text)
+        topics = extract_topics(state)
+        save_to_csv(topics, CSV_FILE)
+        save_to_csv(topics, ARCHIVE_CSV)
     except Exception as e:
         print(f"❌ Scraping failed: {e}")
 
