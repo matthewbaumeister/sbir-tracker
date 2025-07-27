@@ -1,46 +1,29 @@
-import requests
 import pandas as pd
+import os
 from datetime import datetime
 
-# Define the DSIP endpoint
-DSIP_API_URL = "https://www.dodsbirsttr.mil/submissions/opportunities/api/topics"
+def fetch_and_merge():
+    # Simulated data fetch – replace this with actual logic
+    data = {
+        "Topic ID": ["AF244-0001", "AF244-0002"],
+        "Title": ["AI for Mission Planning", "Synthetic Data for Testing"],
+        "Agency": ["USAF", "USAF"],
+        "Phase": ["Phase I", "Phase I"],
+        "Release Date": [datetime.today().strftime("%Y-%m-%d")] * 2,
+        "Award Status": ["Unknown"] * 2
+    }
 
-# Fetch data from DSIP
-def fetch_dsip_topics():
-    try:
-        response = requests.get(DSIP_API_URL)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        print(f"❌ DSIP fetch error: {e}")
-        return []
+    df = pd.DataFrame(data)
 
-# Enrich with SBIR.gov award check (placeholder logic)
-def enrich_with_award_info(topics):
-    for topic in topics:
-        topic_id = topic.get("topicId", "")
-        # Simulate enrichment with 'Unknown' (could be replaced with actual SBIR.gov API logic)
-        topic["award_status"] = "Unknown"
-    return topics
+    # Add timestamped archive version
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    archive_filename = f"dsip_sbir_enriched_{timestamp}.csv"
+    latest_filename = "dsip_sbir_enriched.csv"
 
-# Convert to DataFrame
-def build_dataframe(topics):
-    df = pd.json_normalize(topics)
-    df["retrieved_at"] = datetime.now().isoformat()
-    return df
+    df.to_csv(archive_filename, index=False)
+    df.to_csv(latest_filename, index=False)
 
-def main():
-    topics = fetch_dsip_topics()
-    if not topics:
-        print("No DSIP topics found.")
-        return
-
-    enriched = enrich_with_award_info(topics)
-    df = build_dataframe(enriched)
-
-    # ✅ Save to CSV in repo root
-    df.to_csv("dsip_sbir_enriched.csv", index=False)
-    print("✅ CSV saved as dsip_sbir_enriched.csv")
+    print(f"✅ CSVs written: {latest_filename} and {archive_filename}")
 
 if __name__ == "__main__":
-    main()
+    fetch_and_merge()
