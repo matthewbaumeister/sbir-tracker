@@ -3,13 +3,11 @@ import requests
 import csv
 import os
 
-# Constants
 DSIP_URL = "https://www.dodsbir.net/sitis/api/topics/solicitations/current"
 CSV_FILENAME = "dsip_sbir_enriched.csv"
 TIMESTAMP = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
 VERSIONED_CSV_FILENAME = f"archive/dsip_sbir_enriched_{TIMESTAMP}.csv"
 
-# Ensure archive directory exists
 os.makedirs("archive", exist_ok=True)
 
 def fetch_dsip_data():
